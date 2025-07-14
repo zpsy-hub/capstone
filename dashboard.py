@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 import random
 from typing import Dict, List
 import json
+import os
+
+# Load the secret from GitHub Actions environment
+api_key = os.environ.get("GROQ_API_KEY")  # Matches the Name you set above
 
 # Try to import optional libraries with fallbacks
 try:
@@ -350,26 +354,341 @@ def generate_sample_data():
     
     return pd.DataFrame(data)
 
-def get_probability_color(prob):
-    """Return color class based on probability"""
-    if prob >= 0.7:
-        return "prob-high"
-    elif prob >= 0.4:
-        return "prob-medium"
+# Try to import groq for real AI interpretation
+try:
+    import requests
+    # Get API key from environment (either from .env locally or GitHub Secrets in production)
+    GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # Secure way to access the key
+    
+    if not GROQ_API_KEY:
+        raise ValueError("API key not found")
+        
+    GROQ_API_AVAILABLE = True
+    
+except (ImportError, ValueError) as e:
+    GROQ_API_AVAILABLE = False
+    st.warning(f"⚠️ Groq not available ({str(e)}). Using rule-based interpretation.")
+    
+def get_real_ai_weather_interpretation(factors):
+    """Get REAL AI interpretation using Groq API"""
+    if not GROQ_API_AVAILABLE:
+        return ["🤖 AI unavailable - using smart rules instead"]
+    
+    try:
+        # Prepare weather data for AI
+        weather_summary = f"""
+        Weather Data for Metro Manila:
+        - Temperature: {factors['temperature']}°C
+        - Humidity: {factors['humidity']}%
+        - Rainfall: {factors['rainfall_mm']}mm
+        - Wind Speed: {factors['wind_speed_kph']}kph
+        - Weather Condition: {factors['weather_condition']}
+        - Flood Risk: {factors['flood_risk']}
+        - TCWS Level: {factors['tcws_level']}
+        - 6h Rain Probability: {factors['precipitation_prob_6h']}%
+        """
+        
+        prompt = f"""You are a weather expert analyzing conditions for school suspension decisions in Metro Manila, Philippines. 
+
+{weather_summary}
+
+Provide 3-4 brief, practical interpretations about:
+1. What this weather means for students and transportation
+2. Specific risks or safety concerns
+3. Impact on school operations
+4. Overall suspension likelihood
+
+Keep each point under 15 words. Use relevant emojis. Be specific to Philippines weather patterns.
+
+Example format:
+🌧️ Heavy rainfall creating dangerous travel conditions for students
+⚡ Thunderstorms increase lightning risk during outdoor activities  
+🚨 High flood risk making major roads like EDSA impassable"""
+
+        # Call Groq API
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {GROQ_API_KEY}"
+        }
+        
+        data = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": 300
+        }
+        
+        response = requests.post(
+            "https://api.groq.com/openai/v1/chat/completions",
+            headers=headers,
+            json=data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            ai_response = response.json()['choices'][0]['message']['content']
+            # Split into individual interpretations
+            interpretations = [line.strip() for line in ai_response.split('\n') if line.strip() and ('🌧️' in line or '⚡' in line or '🚨' in line or '🌊' in line or '💨' in line or '🔥' in line or '❄️' in line or '🌪️' in line)]
+            return interpretations[:4] if interpretations else [ai_response.strip()]
+        else:
+            return [f"🤖 AI Error: {response.status_code} - Using fallback interpretation"]
+            
+    except Exception as e:
+        return [f"🤖 AI Connection failed: {str(e)[:50]}... - Using smart rules"]
+
+def get_ai_weather_interpretation(factors):
+    """Smart weather interpretation - tries real AI first, falls back to rules"""
+    
+    # Try real AI first
+    ai_interpretations = get_real_ai_weather_interpretation(factors)
+    
+    # If AI worked, return AI results
+    if ai_interpretations and not any('Error' in interp or 'failed' in interp for interp in ai_interpretations):
+        return ["🤖 AI Analysis:"] + ai_interpretations
+    
+    # Fallback to comprehensive rule-based logic
+    interpretations = ["📊 Smart Analysis:"]
+    
+    # Temperature analysis with more cases
+    temp = factors['temperature']
+    if temp > 38:
+        interpretations.append("🔥 Dangerously hot conditions - heat exhaustion risk for students")
+    elif temp > 35:
+        interpretations.append("🌡️ Extremely hot weather may cause health issues during outdoor activities")
+    elif temp > 32:
+        interpretations.append("☀️ Very hot conditions - schools may consider heat advisories")
+    elif temp > 28:
+        interpretations.append("🌤️ Warm weather - comfortable for school activities")
+    elif temp < 18:
+        interpretations.append("🥶 Unusually cold weather for Metro Manila - rare occurrence")
+    elif temp < 22:
+        interpretations.append("🌬️ Cool weather conditions - pleasant for outdoor activities")
     else:
-        return "prob-low"
+        interpretations.append("🌡️ Normal temperature range for Metro Manila")
+    
+    # Detailed rainfall impact analysis
+    rainfall = factors['rainfall_mm']
+    if rainfall > 50:
+        interpretations.append("🌊 Extreme rainfall - widespread flooding, roads impassable")
+    elif rainfall > 30:
+        interpretations.append("⛈️ Very heavy rainfall - severe flooding in low-lying areas")
+    elif rainfall > 20:
+        interpretations.append("🌧️ Heavy rainfall - major roads flooded, transport severely affected")
+    elif rainfall > 15:
+        interpretations.append("🌦️ Moderate to heavy rain - flood-prone areas affected, some road closures")
+    elif rainfall > 10:
+        interpretations.append("☔ Moderate rain - localized flooding possible in usual spots")
+    elif rainfall > 5:
+        interpretations.append("🌧️ Light to moderate rain - minimal flooding in flood-prone areas only")
+    elif rainfall > 1:
+        interpretations.append("🌦️ Light rain - roads wet but generally passable")
+    elif rainfall > 0:
+        interpretations.append("💧 Very light drizzle - minimal impact on transportation")
+    else:
+        interpretations.append("☀️ No current rainfall - clear conditions")
+    
+    # Comprehensive wind impact analysis
+    wind = factors['wind_speed_kph']
+    if wind > 220:
+        interpretations.append("🌪️ Super typhoon winds - catastrophic damage, total evacuation needed")
+    elif wind > 185:
+        interpretations.append("🌀 Typhoon winds - extreme destruction, all activities suspended")
+    elif wind > 118:
+        interpretations.append("💨 Very strong typhoon winds - dangerous flying debris, schools closed")
+    elif wind > 89:
+        interpretations.append("🌬️ Strong typhoon winds - structural damage possible, unsafe conditions")
+    elif wind > 62:
+        interpretations.append("💨 Typhoon-force winds - trees may fall, power lines down")
+    elif wind > 50:
+        interpretations.append("🌪️ Very strong winds - dangerous for students, outdoor activities cancelled")
+    elif wind > 39:
+        interpretations.append("🌬️ Strong winds - may affect transport, caution for pedestrians")
+    elif wind > 25:
+        interpretations.append("🍃 Moderate winds - generally safe, minor inconvenience")
+    elif wind > 15:
+        interpretations.append("🌱 Light to moderate winds - comfortable conditions")
+    elif wind > 5:
+        interpretations.append("🍃 Light breeze - pleasant weather conditions")
+    else:
+        interpretations.append("🌅 Very calm conditions - minimal wind")
+    
+    # Enhanced flood risk interpretation
+    flood_risk = factors['flood_risk']
+    if flood_risk == 'High':
+        interpretations.append("🚨 High flood risk - major thoroughfares like EDSA likely impassable")
+    elif flood_risk == 'Medium':
+        interpretations.append("⚠️ Moderate flood risk - some underpasses and low areas may flood")
+    else:
+        interpretations.append("✅ Low flood risk - main roads should remain passable")
+    
+    # Detailed TCWS interpretation with impact
+    tcws = factors['tcws_level']
+    if tcws >= 5:
+        interpretations.append("🌪️ Signal #5: Super typhoon - catastrophic winds, total evacuation")
+    elif tcws >= 4:
+        interpretations.append("🌀 Signal #4: Typhoon - very destructive winds, all schools closed")
+    elif tcws >= 3:
+        interpretations.append("💨 Signal #3: Destructive winds 89-117 kph - schools automatically suspended")
+    elif tcws >= 2:
+        interpretations.append("🌬️ Signal #2: Damaging winds 62-88 kph - very high suspension probability")
+    elif tcws >= 1:
+        interpretations.append("🌊 Signal #1: Strong winds 39-61 kph - schools often suspend classes")
+    else:
+        interpretations.append("🌤️ No tropical cyclone signals - normal wind conditions")
+    
+    # Weather condition impact with more detail
+    condition = factors['weather_condition'].lower()
+    if 'thunderstorm' in condition and 'heavy' in condition:
+        interpretations.append("⚡ Severe thunderstorms with heavy rain - very dangerous travel conditions")
+    elif 'thunderstorm' in condition:
+        interpretations.append("⛈️ Thunderstorms present - lightning risk, avoid outdoor activities")
+    elif 'heavy rain' in condition:
+        interpretations.append("🌧️ Heavy rain creates hazardous driving and walking conditions")
+    elif 'moderate rain' in condition:
+        interpretations.append("🌦️ Moderate rain affects visibility and road safety")
+    elif 'light rain' in condition or 'drizzle' in condition:
+        interpretations.append("☔ Light precipitation - minor impact on transportation")
+    elif 'fog' in condition:
+        interpretations.append("🌫️ Fog reduces visibility - extra caution needed for transport")
+    elif 'clear' in condition or 'sunny' in condition:
+        interpretations.append("☀️ Clear weather conditions - excellent for all activities")
+    elif 'cloudy' in condition:
+        interpretations.append("☁️ Overcast skies but stable weather conditions")
+    
+    return interpretations[:4]  # Return top 4 interpretations
+
+def get_suspension_risk_factors(factors):
+    """Calculate and explain suspension risk factors"""
+    risk_factors = []
+    
+    if factors['rainfall_mm'] > 15:
+        risk_factors.append("Heavy rainfall (>15mm)")
+    if factors['wind_speed_kph'] > 50:
+        risk_factors.append("Strong winds (>50kph)")
+    if factors['tcws_level'] > 0:
+        risk_factors.append(f"Typhoon Signal #{factors['tcws_level']}")
+    if factors['flood_risk'] == 'High':
+        risk_factors.append("High flood risk")
+    if factors['precipitation_prob_6h'] > 80:
+        risk_factors.append("Very high rain probability")
+    
+    return risk_factors
 
 def get_metro_manila_recommendation(df):
-    """Get overall Metro Manila recommendation based on majority rule"""
-    high_prob_cities = len(df[df['morning_probability'] >= 0.7])
+    """Get overall Metro Manila recommendation based on majority rule and time of day"""
+    from datetime import datetime
+    
+    # Determine which prediction to use based on current time
+    current_hour = datetime.now().hour
+    show_evening_first = (current_hour >= 19) or (current_hour < 5)
+    
+    # Use the appropriate prediction based on time
+    if show_evening_first:
+        high_prob_cities = len(df[df['evening_probability'] >= 0.7])
+        prediction_type = "Evening"
+    else:
+        high_prob_cities = len(df[df['morning_probability'] >= 0.7])
+        prediction_type = "Morning"
+    
     total_cities = len(df)
+    confidence = high_prob_cities / total_cities
     
     if high_prob_cities >= total_cities * 0.6:
-        return "SUSPEND", high_prob_cities / total_cities
+        return "SUSPEND", confidence, prediction_type
     else:
-        return "NO SUSPENSION", high_prob_cities / total_cities
+        return "NO SUSPENSION", confidence, prediction_type
+    """Get overall Metro Manila recommendation based on majority rule and time of day"""
+    from datetime import datetime
+    
+    # Determine which prediction to use based on current time
+    current_hour = datetime.now().hour
+    show_evening_first = (current_hour >= 19) or (current_hour < 5)
+    
+    # Use the appropriate prediction based on time
+    if show_evening_first:
+        high_prob_cities = len(df[df['evening_probability'] >= 0.7])
+        prediction_type = "Evening"
+    else:
+        high_prob_cities = len(df[df['morning_probability'] >= 0.7])
+        prediction_type = "Morning"
+    
+    total_cities = len(df)
+    confidence = high_prob_cities / total_cities
+    
+    if high_prob_cities >= total_cities * 0.6:
+        return "SUSPEND", confidence, prediction_type
+    else:
+        return "NO SUSPENSION", confidence, prediction_type
 
 def fetch_rss_feed(url, max_items=5):
+    """Fetch and parse RSS feed"""
+    if not url or url.strip() == "":
+        return []
+    
+    # Check if feedparser is available
+    if feedparser is None:
+        return [{"error": "feedparser library not installed. Run: pip install feedparser"}]
+    
+    try:
+        # Parse the RSS feed
+        feed = feedparser.parse(url)
+        
+        if feed.bozo:
+            return [{"error": f"Invalid RSS feed format: {feed.bozo_exception}"}]
+        
+        items = []
+        for entry in feed.entries[:max_items]:
+            # Get published date
+            pub_date = "Unknown date"
+            if hasattr(entry, 'published'):
+                try:
+                    pub_date = datetime.strptime(entry.published, "%a, %d %b %Y %H:%M:%S %z").strftime("%Y-%m-%d %H:%M")
+                except:
+                    try:
+                        pub_date = datetime.strptime(entry.published, "%a, %d %b %Y %H:%M:%S %Z").strftime("%Y-%m-%d %H:%M")
+                    except:
+                        pub_date = entry.published
+            elif hasattr(entry, 'updated'):
+                try:
+                    pub_date = datetime.strptime(entry.updated, "%a, %d %b %Y %H:%M:%S %z").strftime("%Y-%m-%d %H:%M")
+                except:
+                    pub_date = entry.updated
+            
+            items.append({
+                "title": getattr(entry, 'title', 'No title'),
+                "link": getattr(entry, 'link', '#'),
+                "published": pub_date,
+                "summary": getattr(entry, 'summary', 'No summary available')[:200] + "..." if len(getattr(entry, 'summary', '')) > 200 else getattr(entry, 'summary', 'No summary available')
+            })
+        
+        return items
+    
+    except Exception as e:
+        return [{"error": f"Error fetching RSS feed: {str(e)}"}]
+
+def get_sample_rss_urls():
+    """Get sample RSS URLs for demonstration"""
+    return {
+        "pagasa": [
+            "https://www.pagasa.dost.gov.ph/rss",
+            "https://feeds.feedburner.com/pagasa-weather-updates",
+            "https://news.google.com/rss/search?q=site:twitter.com+PAGASA+advisory+when:1d&hl=en-PH&gl=PH&ceid=PH:en"
+        ],
+        "news": [
+            "https://www.rappler.com/rss/nation/weather/",
+            "https://newsinfo.inquirer.net/category/latest-stories/feed",
+            "https://mb.com.ph/feed/",
+            "https://www.gmanetwork.com/news/rss/news/"
+        ],
+        "twitter_walangpasok": [
+            "https://news.google.com/rss/search?q=site:twitter.com+%23WalangPasok+when:1d&hl=en-PH&gl=PH&ceid=PH:en",
+            "https://news.google.com/rss/search?q=site:twitter.com+%22class+suspension%22+when:1d&hl=en-PH&gl=PH&ceid=PH:en",
+            "https://news.google.com/rss/search?q=site:twitter.com+(%23WalangPasok+OR+%23ClassSuspension)+when:1d&hl=en-PH&gl=PH&ceid=PH:en",
+            "https://news.google.com/rss/search?q=site:twitter.com+(Quezon+City+OR+Manila+OR+Makati)+suspension+when:1d&hl=en-PH&gl=PH&ceid=PH:en"
+        ]
+    }
     """Fetch and parse RSS feed"""
     if not url or url.strip() == "":
         return []
@@ -616,16 +935,26 @@ def main_dashboard():
     # Generate sample data
     df = generate_sample_data()
     
-    # Get overall recommendation
-    recommendation, confidence = get_metro_manila_recommendation(df)
+    # Dynamic prediction setup - define variables first
+    from datetime import datetime, timedelta
+    now = datetime.now()
+    current_hour = now.hour
+    today = now.date()
+    tomorrow = today + timedelta(days=1)
     
-    # Display main recommendation
+    # Between 7PM (19:00) and 4:49AM next day - show Evening prediction only
+    show_evening_first = (current_hour >= 19) or (current_hour < 5)
+    
+    # Get overall recommendation based on time-appropriate prediction
+    recommendation, confidence, prediction_type = get_metro_manila_recommendation(df)
+    
+    # Display main recommendation with time context
     if recommendation == "SUSPEND":
         st.markdown(f'''
         <div class="suspension-alert">
             ⚠️ HIGH PROBABILITY OF CLASS SUSPENSION
             <br>
-            <span style="font-size: 1rem;">Metro Manila-wide confidence: {confidence:.1%}</span>
+            <span style="font-size: 1rem;">Metro Manila-wide confidence: {confidence:.1%} ({prediction_type} Prediction)</span>
         </div>
         ''', unsafe_allow_html=True)
     else:
@@ -633,20 +962,26 @@ def main_dashboard():
         <div class="no-suspension-alert">
             ✅ LOW PROBABILITY OF CLASS SUSPENSION
             <br>
-            <span style="font-size: 1rem;">Metro Manila-wide confidence: {(1-confidence):.1%}</span>
+            <span style="font-size: 1rem;">Metro Manila-wide confidence: {(1-confidence):.1%} ({prediction_type} Prediction)</span>
         </div>
         ''', unsafe_allow_html=True)
     
-    # Prediction cycles
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("🌅 Morning Prediction (05:00)")
-        st.info("Updated with overnight weather data - Higher confidence")
-        
-    with col2:
-        st.subheader("🌙 Evening Prediction (19:00)")
-        st.info("24-hour forecast based - Planning purposes")
+    # Dynamic prediction display - show only the relevant one
+    if show_evening_first:
+        # Show only Evening prediction
+        st.subheader(f"🌙 Evening Prediction (19:00)")
+        if current_hour >= 19:
+            # After 7PM today, predicting for tomorrow
+            target_date = tomorrow
+            st.info(f"**NEXT DAY FORECAST** - {target_date.strftime('%B %d, %Y')}\n\n24-hour forecast based - Planning purposes")
+        else:
+            # Before 5AM, still showing yesterday evening's prediction for today
+            target_date = today
+            st.info(f"**TODAY'S FORECAST** - {target_date.strftime('%B %d, %Y')}\n\nEvening prediction active until 5:00 AM")
+    else:
+        # Show only Morning prediction (5AM to 6:59PM)
+        st.subheader(f"🌅 Morning Prediction (05:00)")
+        st.info(f"**TODAY'S CONFIRMATION** - {today.strftime('%B %d, %Y')}\n\nUpdated with overnight weather data - Higher confidence")
     
     # Map visualization
     st.subheader("📍 Interactive Map")
@@ -659,198 +994,338 @@ def main_dashboard():
     # City-by-city breakdown
     st.subheader("🏙️ City-by-City Breakdown")
     
-    # Sort cities by morning probability (highest first)
-    df_sorted = df.sort_values('morning_probability', ascending=False)
+    # Sort cities by the most relevant prediction based on time of day
+    if show_evening_first:
+        df_sorted = df.sort_values('evening_probability', ascending=False)
+    else:
+        df_sorted = df.sort_values('morning_probability', ascending=False)
     
-    # Display cities in expanders
+    # Display cities in expanders - MUCH LARGER city font
     for _, row in df_sorted.iterrows():
-        with st.expander(f"{row['city']} - {row['morning_probability']:.1%} probability"):
-            col1, col2, col3, col4 = st.columns(4)
+        # Use only the active prediction based on time of day
+        active_prob = row['evening_probability'] if show_evening_first else row['morning_probability']
+        prediction_type = "Evening" if show_evening_first else "Morning"
+        
+        # MUCH LARGER FONT FOR CITY NAMES - Make them super visible
+        city_name_style = f"""
+        <style>
+        .big-city-name {{
+            font-size: 1.8rem !important;
+            font-weight: bold !important;
+            color: white !important;
+        }}
+        </style>
+        """
+        st.markdown(city_name_style, unsafe_allow_html=True)
+        
+        with st.expander(f"# {row['city']} - {active_prob:.1%} probability", expanded=False):
             
-            with col1:
-                st.metric("Morning Probability", f"{row['morning_probability']:.1%}")
-                st.metric("Evening Probability", f"{row['evening_probability']:.1%}")
+            # 1. SUSPENSION PROBABILITY - Most Important
+            st.markdown("### 🎯 **SUSPENSION PROBABILITY**")
+            prob_col1, prob_col2 = st.columns([3, 1])
             
-            with col2:
-                st.metric("Temperature", f"{row['weather_factors']['temperature']:.1f}°C")
-                st.metric("Humidity", f"{row['weather_factors']['humidity']:.1f}%")
+            with prob_col1:
+                # Clean probability display without borders
+                prob_color = "#d32f2f" if active_prob >= 0.7 else "#ff9800" if active_prob >= 0.4 else "#4caf50"
+                st.markdown(f"""
+                <div style="text-align: center; padding: 15px; background-color: {prob_color}15; border-radius: 10px;">
+                    <h1 style="color: {prob_color}; margin: 0; font-size: 2.5rem;">{active_prob:.1%}</h1>
+                    <h4 style="color: white; margin: 5px 0;">{"🌙 Evening" if show_evening_first else "🌅 Morning"} Prediction</h4>
+                    <p style="margin: 0; color: #ccc; font-size: 0.9rem;">Target: {target_date.strftime('%B %d, %Y') if show_evening_first else today.strftime('%B %d, %Y')}</p>
+                </div>
+                """, unsafe_allow_html=True)
             
-            with col3:
-                st.metric("Rainfall", f"{row['weather_factors']['rainfall_mm']:.1f} mm")
-                st.metric("Wind Speed", f"{row['weather_factors']['wind_speed_kph']:.1f} kph")
-            
-            with col4:
-                st.metric("6h Rain Prob", f"{row['weather_factors']['precipitation_prob_6h']:.1f}%")
-                st.metric("Weather", row['weather_factors']['weather_condition'])
-            
-            # Additional details in a second row
-            col5, col6, col7, col8 = st.columns(4)
-            
-            with col5:
-                st.metric("Flood Risk", row['weather_factors']['flood_risk'])
-            with col6:
-                st.metric("TCWS Level", row['weather_factors']['tcws_level'])
-            with col7:
-                st.metric("Last Updated", row['weather_factors']['last_updated'])
-            with col8:
-                # Weather-based recommendation
+            with prob_col2:
+                # AI Risk Assessment
                 factors = row['weather_factors']
-                risk_score = 0
+                risk_factors = get_suspension_risk_factors(factors)
+                risk_level = "🟢 Low" if len(risk_factors) <= 1 else "🟡 Medium" if len(risk_factors) <= 3 else "🔴 High"
                 
-                # Calculate risk score based on weather factors
-                if factors['rainfall_mm'] > 15: 
-                    risk_score += 2
-                elif factors['rainfall_mm'] > 5: 
-                    risk_score += 1
-                
-                if factors['wind_speed_kph'] > 50: 
-                    risk_score += 2
-                elif factors['wind_speed_kph'] > 30: 
-                    risk_score += 1
-                
-                if factors['tcws_level'] > 0: 
-                    risk_score += 2
-                
-                if factors['flood_risk'] == 'High': 
-                    risk_score += 1
-                
-                risk_level = "🟢 Low" if risk_score <= 2 else "🟡 Medium" if risk_score <= 4 else "🔴 High"
-                st.metric("Weather Risk", risk_level)
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #333; border-radius: 8px;">
+                    <h5 style="margin: 0; color: white;">🤖 AI Risk Analysis</h5>
+                    <h3 style="margin: 5px 0; color: white;">{risk_level}</h3>
+                    <small style="color: #ccc;">{len(risk_factors)} risk factor(s)</small>
+                </div>
+                """, unsafe_allow_html=True)
             
-            # 24-hour forecast chart if data is available
+            # AI Weather Interpretation Section - Enhanced with transparency
+            st.markdown("### 🤖 **AI WEATHER INTERPRETATION**")
+            
+            # AI Transparency Notice
+            st.markdown("""
+            <div style="padding: 8px; margin: 4px 0; background-color: #1a1a1a; border-radius: 6px; border-left: 3px solid #ffa500;">
+                <small style="color: #ccc; font-size: 0.85rem;">
+                    <strong>🔬 AI Model:</strong> Llama 3.3 70B via Groq API | 
+                    <strong>⚠️ Note:</strong> AI interpretation may vary from actual on-site conditions. Always verify with official weather sources.
+                </small>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            interpretations = get_ai_weather_interpretation(factors)
+            
+            # Display interpretations in a clean format
+            for interpretation in interpretations[:4]:  # Show top 4 most relevant
+                st.markdown(f"""
+                <div style="padding: 10px; margin: 6px 0; background-color: #2a2a2a; border-radius: 6px; border-left: 3px solid #1f77b4;">
+                    <span style="color: white; font-size: 1rem;">{interpretation}</span>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            if risk_factors:
+                st.markdown("**⚠️ Key Suspension Risk Factors:**")
+                for factor in risk_factors:
+                    st.markdown(f"• {factor}", unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            # 2. CURRENT CONDITIONS - Improved font sizing
+            st.markdown("### 🌡️ **CURRENT CONDITIONS**")
+            curr_col1, curr_col2, curr_col3, curr_col4 = st.columns(4)
+            
+            with curr_col1:
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #2a2a2a; border-radius: 8px;">
+                    <h5 style="margin: 0; color: #ccc; font-size: 1rem;">🌡️ Temperature</h5>
+                    <h2 style="margin: 5px 0; color: white; font-size: 1.8rem;">{factors['temperature']:.1f}°C</h2>
+                    <small style="color: #888; font-size: 0.9rem;">{"Feels hot" if factors['temperature'] > 32 else "Feels warm" if factors['temperature'] > 28 else "Comfortable"}</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with curr_col2:
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #2a2a2a; border-radius: 8px;">
+                    <h5 style="margin: 0; color: #ccc; font-size: 1rem;">💧 Humidity</h5>
+                    <h2 style="margin: 5px 0; color: white; font-size: 1.8rem;">{factors['humidity']:.1f}%</h2>
+                    <small style="color: #888; font-size: 0.9rem;">{"Very humid" if factors['humidity'] > 85 else "Humid" if factors['humidity'] > 70 else "Moderate"}</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with curr_col3:
+                rain_intensity = "Heavy" if factors['rainfall_mm'] > 15 else "Moderate" if factors['rainfall_mm'] > 5 else "Light" if factors['rainfall_mm'] > 0 else "None"
+                rain_color = "#ff4444" if factors['rainfall_mm'] > 15 else "#ff8800" if factors['rainfall_mm'] > 5 else "#44ff44"
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #2a2a2a; border-radius: 8px;">
+                    <h5 style="margin: 0; color: #ccc; font-size: 1rem;">🌧️ Rainfall</h5>
+                    <h2 style="margin: 5px 0; color: {rain_color}; font-size: 1.8rem;">{factors['rainfall_mm']:.1f} mm</h2>
+                    <small style="color: #888; font-size: 0.9rem;">{rain_intensity} rain</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with curr_col4:
+                wind_intensity = "Very strong" if factors['wind_speed_kph'] > 60 else "Strong" if factors['wind_speed_kph'] > 40 else "Moderate" if factors['wind_speed_kph'] > 25 else "Light"
+                wind_color = "#ff4444" if factors['wind_speed_kph'] > 50 else "#ff8800" if factors['wind_speed_kph'] > 30 else "#44ff44"
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #2a2a2a; border-radius: 8px;">
+                    <h5 style="margin: 0; color: #ccc; font-size: 1rem;">💨 Wind Speed</h5>
+                    <h2 style="margin: 5px 0; color: {wind_color}; font-size: 1.8rem;">{factors['wind_speed_kph']:.1f} kph</h2>
+                    <small style="color: #888; font-size: 0.9rem;">{wind_intensity} winds</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # Additional current conditions - IMPROVED FONT SIZES
+            st.markdown("<br>", unsafe_allow_html=True)
+            curr2_col1, curr2_col2, curr2_col3, curr2_col4 = st.columns(4)
+            
+            with curr2_col1:
+                st.markdown(f"""
+                <div style="text-align: center; padding: 10px; background-color: #2a2a2a; border-radius: 6px;">
+                    <small style="color: #ccc; font-size: 0.95rem;">☁️ Condition</small><br>
+                    <strong style="color: white; font-size: 1.1rem;">{factors['weather_condition']}</strong>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with curr2_col2:
+                flood_color = "#ff4444" if factors['flood_risk'] == 'High' else "#ff8800" if factors['flood_risk'] == 'Medium' else "#44ff44"
+                st.markdown(f"""
+                <div style="text-align: center; padding: 10px; background-color: #2a2a2a; border-radius: 6px;">
+                    <small style="color: #ccc; font-size: 0.95rem;">🌊 Flood Risk</small><br>
+                    <strong style="color: {flood_color}; font-size: 1.1rem;">{factors['flood_risk']}</strong>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with curr2_col3:
+                tcws_color = "#ff4444" if factors['tcws_level'] > 1 else "#ff8800" if factors['tcws_level'] > 0 else "#44ff44"
+                tcws_meaning = "Destructive" if factors['tcws_level'] > 2 else "Damaging" if factors['tcws_level'] > 1 else "Strong" if factors['tcws_level'] > 0 else "Normal"
+                st.markdown(f"""
+                <div style="text-align: center; padding: 10px; background-color: #2a2a2a; border-radius: 6px;">
+                    <small style="color: #ccc; font-size: 0.95rem;">🌀 TCWS Level</small><br>
+                    <strong style="color: {tcws_color}; font-size: 1.1rem;">{factors['tcws_level']} - {tcws_meaning}</strong>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with curr2_col4:
+                st.markdown(f"""
+                <div style="text-align: center; padding: 10px; background-color: #2a2a2a; border-radius: 6px;">
+                    <small style="color: #ccc; font-size: 0.95rem;">🕐 Updated</small><br>
+                    <strong style="color: white; font-size: 1.1rem;">{factors['last_updated']}</strong>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            st.markdown("---")
+            
+            # 3. FORECAST - Clean borderless design
+            if show_evening_first:
+                st.markdown("### 📅 **TOMORROW'S FORECAST**")
+            else:
+                st.markdown("### 📊 **TODAY'S OUTLOOK**")
+            
+            forecast_col1, forecast_col2, forecast_col3 = st.columns(3)
+            
+            with forecast_col1:
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #2a2a2a; border-radius: 8px;">
+                    <h5 style="margin: 0; color: #ccc;">🌡️ Temperature</h5>
+                    <h3 style="margin: 3px 0; color: white;">{factors['forecast_temp']:.1f}°C</h3>
+                    <small style="color: #888;">Avg for next 24h</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with forecast_col2:
+                precip_color = "#ff4444" if factors['forecast_precip'] > 20 else "#ff8800" if factors['forecast_precip'] > 10 else "#44ff44"
+                rain_impact = "Major flooding likely" if factors['forecast_precip'] > 30 else "Flooding possible" if factors['forecast_precip'] > 15 else "Minor flooding" if factors['forecast_precip'] > 5 else "Minimal impact"
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #2a2a2a; border-radius: 8px;">
+                    <h5 style="margin: 0; color: #ccc;">🌧️ Total Rain</h5>
+                    <h3 style="margin: 3px 0; color: {precip_color};">{factors['forecast_precip']:.1f} mm</h3>
+                    <small style="color: #888;">{rain_impact}</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            with forecast_col3:
+                rain_prob_color = "#ff4444" if factors['precipitation_prob_6h'] > 70 else "#ff8800" if factors['precipitation_prob_6h'] > 40 else "#44ff44"
+                prob_meaning = "Very likely" if factors['precipitation_prob_6h'] > 80 else "Likely" if factors['precipitation_prob_6h'] > 60 else "Possible" if factors['precipitation_prob_6h'] > 30 else "Unlikely"
+                st.markdown(f"""
+                <div style="text-align: center; padding: 12px; background-color: #2a2a2a; border-radius: 8px;">
+                    <h5 style="margin: 0; color: #ccc;">☔ Rain Chance</h5>
+                    <h3 style="margin: 3px 0; color: {rain_prob_color};">{factors['precipitation_prob_6h']:.1f}%</h3>
+                    <small style="color: #888;">{prob_meaning}</small>
+                </div>
+                """, unsafe_allow_html=True)
+            
+            # 4. DETAILED FORECAST CHART - Optional/Expandable
             if row['weather_factors']['hourly_data']:
-                forecast_chart = create_24hour_forecast_chart(
-                    row['weather_factors']['hourly_data'], 
-                    row['city']
-                )
-                if forecast_chart:
-                    st.plotly_chart(forecast_chart, use_container_width=True)
+                with st.expander("📈 Detailed 24-Hour Forecast"):
+                    forecast_chart = create_24hour_forecast_chart(
+                        row['weather_factors']['hourly_data'], 
+                        row['city']
+                    )
+                    if forecast_chart:
+                        st.plotly_chart(forecast_chart, use_container_width=True)
     
-    # RSS Feeds Section
+    # RSS Feeds Section - Simple Feed Display
     st.subheader("📡 Official Updates & News Feeds")
+    
+    # Simple CSS for clean feed display
+    st.markdown("""
+    <style>
+    .feed-item {
+        padding: 8px 0;
+        border-bottom: 1px solid #eee;
+        margin-bottom: 8px;
+    }
+    .feed-time {
+        color: #666;
+        font-size: 0.9rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     col1, col2 = st.columns(2)
     
     with col1:
-        st.subheader("🌪️ PAGASA Updates")
+        st.markdown("### 🌪️ PAGASA Updates")
         
-        # Initialize session state for PAGASA RSS URL
-        if 'pagasa_rss_url' not in st.session_state:
-            st.session_state.pagasa_rss_url = ""
-        
-        # RSS URL input with sample suggestions
-        sample_urls = get_sample_rss_urls()
-        st.markdown("**Sample PAGASA RSS URLs:**")
-        for url in sample_urls["pagasa"]:
-            if st.button(f"📋 {url}", key=f"pagasa_{url}"):
-                st.session_state.pagasa_rss_url = url
-        
-        pagasa_url = st.text_area(
-            "PAGASA RSS Feed URL:", 
-            value=st.session_state.pagasa_rss_url,
-            placeholder="Enter PAGASA RSS feed URL...", 
-            height=80,
-            key="pagasa_input"
+        # Simple RSS URL input
+        pagasa_url = st.text_input(
+            "RSS URL:", 
+            placeholder="Enter PAGASA RSS feed URL...",
+            key="pagasa_simple_input"
         )
         
-        if st.button("🔄 Fetch PAGASA Updates", key="fetch_pagasa"):
-            if pagasa_url:
-                with st.spinner("Fetching PAGASA updates..."):
-                    pagasa_items = fetch_rss_feed(pagasa_url)
-                    st.session_state.pagasa_items = pagasa_items
-            else:
-                st.warning("Please enter a PAGASA RSS URL first!")
+        if pagasa_url and st.button("🔄 Load Feed", key="load_pagasa"):
+            with st.spinner("Loading..."):
+                items = fetch_rss_feed(pagasa_url)
+                st.session_state.pagasa_feed = items
         
-        # Display PAGASA updates
-        st.markdown("**Latest PAGASA Updates:**")
-        if 'pagasa_items' in st.session_state and st.session_state.pagasa_items:
-            for item in st.session_state.pagasa_items:
+        # Display feed items
+        if pagasa_url and 'pagasa_feed' in st.session_state:
+            for item in st.session_state.pagasa_feed:
                 if "error" in item:
-                    st.error(f"❌ {item['error']}")
+                    st.error(f"Error: {item['error']}")
                 else:
-                    with st.expander(f"🌩️ {item['title'][:80]}... ({item['published']})"):
-                        st.write(f"**📅 Published:** {item['published']}")
-                        st.write(f"**📝 Summary:** {item['summary']}")
-                        st.markdown(f"**🔗 [Read Full Article]({item['link']})**")
+                    st.markdown(f"""
+                    <div class="feed-item">
+                        <strong>{item['title']}</strong><br>
+                        <span class="feed-time">{item['published']}</span><br>
+                        <small>{item['summary'][:100]}...</small>
+                    </div>
+                    """, unsafe_allow_html=True)
         else:
-            # Fallback sample updates
-            pagasa_updates = [
-                "🌩️ Thunderstorm advisory issued for Metro Manila - Valid until 6:00 PM",
-                "🌧️ Yellow rainfall warning lifted for NCR as of 2:00 PM",
-                "💨 Southwest monsoon continues to affect Luzon"
+            # Sample feed content
+            sample_feed = [
+                ("🌩️ Thunderstorm Advisory for Metro Manila", "3:30 PM", "Moderate to heavy rainshowers with lightning and strong winds expected over Metro Manila within 2 hours."),
+                ("🌧️ Yellow Rainfall Warning Lifted", "2:00 PM", "Yellow rainfall warning has been lifted for NCR as rainfall intensity has decreased."),
+                ("💨 Southwest Monsoon Advisory", "12:00 PM", "Southwest monsoon continues to affect Luzon. Occasional rains expected."),
+                ("🌀 Weather Update - Partly Cloudy", "10:00 AM", "Partly cloudy skies with isolated thunderstorms over Metro Manila."),
+                ("📊 24-Hour Weather Forecast", "6:00 AM", "Partly cloudy to cloudy skies with scattered rainshowers and thunderstorms.")
             ]
-            for update in pagasa_updates:
-                st.markdown(f"• {update}")
-            st.info("👆 These are sample updates. Enter an RSS URL above to fetch real data!")
+            
+            for title, time, summary in sample_feed:
+                st.markdown(f"""
+                <div class="feed-item">
+                    <strong>{title}</strong><br>
+                    <span class="feed-time">{time}</span><br>
+                    <small>{summary}</small>
+                </div>
+                """, unsafe_allow_html=True)
     
     with col2:
-        st.subheader("📰 #WalangPasok Live Updates")
+        st.markdown("### 📰 #WalangPasok Updates")
         
-        # Initialize session state for News RSS URL
-        if 'news_rss_url' not in st.session_state:
-            st.session_state.news_rss_url = ""
-        
-        # Twitter #WalangPasok URLs via Google News
-        st.markdown("**🐦 Twitter #WalangPasok (via Google News):**")
-        for url in sample_urls["twitter_walangpasok"]:
-            # Create shorter button labels
-            if "#WalangPasok+when:1d" in url:
-                label = "📋 #WalangPasok (24h)"
-            elif "class+suspension" in url:
-                label = "📋 Class Suspension (24h)"
-            elif "WalangPasok+OR" in url:
-                label = "📋 Multiple Hashtags (24h)"
-            elif "Quezon+City+OR" in url:
-                label = "📋 LGU Announcements (24h)"
-            else:
-                label = f"📋 Twitter Search"
-                
-            if st.button(label, key=f"twitter_{hash(url)}"):
-                st.session_state.news_rss_url = url
-        
-        # Regular RSS URL input with sample suggestions
-        st.markdown("**📰 Regular News RSS URLs:**")
-        for url in sample_urls["news"]:
-            if st.button(f"📋 {url.split('/')[-2] if '/' in url else url}", key=f"news_{url}"):
-                st.session_state.news_rss_url = url
-        
-        news_url = st.text_area(
-            "News/Twitter RSS Feed URL:", 
-            value=st.session_state.news_rss_url,
-            placeholder="Enter news RSS feed URL or Google News Twitter search URL...", 
-            height=80,
-            key="news_input"
+        # Simple RSS URL input
+        news_url = st.text_input(
+            "RSS URL:", 
+            placeholder="Enter news RSS feed URL...",
+            key="news_simple_input"
         )
         
-        if st.button("🔄 Fetch News Updates", key="fetch_news"):
-            if news_url:
-                with st.spinner("Fetching news updates..."):
-                    news_items = fetch_rss_feed(news_url)
-                    st.session_state.news_items = news_items
-            else:
-                st.warning("Please enter a news RSS URL first!")
+        if news_url and st.button("🔄 Load Feed", key="load_news"):
+            with st.spinner("Loading..."):
+                items = fetch_rss_feed(news_url)
+                st.session_state.news_feed = items
         
-        # Display News updates
-        st.markdown("**Latest News Updates:**")
-        if 'news_items' in st.session_state and st.session_state.news_items:
-            for item in st.session_state.news_items:
+        # Display feed items
+        if news_url and 'news_feed' in st.session_state:
+            for item in st.session_state.news_feed:
                 if "error" in item:
-                    st.error(f"❌ {item['error']}")
+                    st.error(f"Error: {item['error']}")
                 else:
-                    with st.expander(f"📢 {item['title'][:80]}... ({item['published']})"):
-                        st.write(f"**📅 Published:** {item['published']}")
-                        st.write(f"**📝 Summary:** {item['summary']}")
-                        st.markdown(f"**🔗 [Read Full Article]({item['link']})**")
+                    st.markdown(f"""
+                    <div class="feed-item">
+                        <strong>{item['title']}</strong><br>
+                        <span class="feed-time">{item['published']}</span><br>
+                        <small>{item['summary'][:100]}...</small>
+                    </div>
+                    """, unsafe_allow_html=True)
         else:
-            # Fallback sample updates
-            news_updates = [
-                "📢 Quezon City suspends classes in all levels - 3:00 PM",
-                "🏫 Makati announces no class suspension despite heavy rains - 2:30 PM",
-                "⚡ Several areas in Metro Manila experience power outages - 1:45 PM"
+            # Sample feed content
+            sample_news = [
+                ("📢 Quezon City Suspends Classes", "3:00 PM", "Quezon City announces suspension of classes in all levels due to continuous heavy rainfall."),
+                ("🏫 Makati: No Class Suspension", "2:30 PM", "Makati City announces no class suspension despite intermittent rains in the area."),
+                ("⚡ Power Outages Reported", "1:45 PM", "Several areas in Metro Manila experience power interruptions due to weather conditions."),
+                ("🚗 Traffic Updates - EDSA", "1:15 PM", "Heavy traffic reported along EDSA due to flooding in some areas."),
+                ("🌊 Flood Alert - Low-lying Areas", "12:45 PM", "Residents in flood-prone areas advised to take necessary precautions.")
             ]
-            for update in news_updates:
-                st.markdown(f"• {update}")
-            st.info("👆 These are sample updates. Try the Twitter search URLs above for real #WalangPasok data!")
+            
+            for title, time, summary in sample_news:
+                st.markdown(f"""
+                <div class="feed-item">
+                    <strong>{title}</strong><br>
+                    <span class="feed-time">{time}</span><br>
+                    <small>{summary}</small>
+                </div>
+                """, unsafe_allow_html=True)
     
     # Last updated timestamp
     st.markdown(f"<p style='text-align: center; color: #666; font-size: 0.9rem;'>Last updated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>", unsafe_allow_html=True)
